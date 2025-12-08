@@ -348,6 +348,13 @@ For issues or questions, please contact your Nintex support representative or sy
 
 ## Version History
 
+### Version 1.2.2 (2025-12-08)
+- **Fixed group hierarchy duplication bug**
+- Added deduplication logic using UniqueId tracking
+- Prevents the same group from being counted multiple times
+- More accurate group count reporting
+- Verbose logging for skipped duplicate groups
+
 ### Version 1.2.1 (2025-12-08)
 - **Added wait-for-user-input before closing**
 - Script now pauses with "Press any key to exit..." message

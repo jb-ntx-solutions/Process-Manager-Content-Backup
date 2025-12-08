@@ -155,6 +155,7 @@ function Get-AllProcessGroupsRecursive {
     Write-Log "Retrieving process group hierarchy..." -Level Info
 
     $allGroups = @()
+    $processedGroupIds = @{}  # Track processed groups by UniqueId
     $groupsToProcess = @(@{ UniqueId = $null; Path = "" })
     $groupsProcessed = 0
 
@@ -167,6 +168,12 @@ function Get-AllProcessGroupsRecursive {
 
         foreach ($group in $groups) {
             if ($group.itemType -eq "group") {
+                # Check if we've already processed this group by its UniqueId
+                if ($processedGroupIds.ContainsKey($group.uniqueId)) {
+                    Write-Verbose "Skipping duplicate group: $($group.title) (UniqueId: $($group.uniqueId))"
+                    continue
+                }
+
                 $groupPath = if ($current.Path) { "$($current.Path)\$($group.title)" } else { $group.title }
 
                 $groupInfo = [PSCustomObject]@{
@@ -178,6 +185,7 @@ function Get-AllProcessGroupsRecursive {
                 }
 
                 $allGroups += $groupInfo
+                $processedGroupIds[$group.uniqueId] = $true
 
                 if ($group.hasChild) {
                     $groupsToProcess += @{ UniqueId = $group.uniqueId; Path = $groupPath }
@@ -187,12 +195,12 @@ function Get-AllProcessGroupsRecursive {
 
         # Show progress update every few groups
         if ($groupsProcessed % 5 -eq 0 -or $groupsToProcess.Count -eq 0) {
-            Write-Host "`r  > Discovered $($allGroups.Count) groups (scanning level $groupsProcessed, $($groupsToProcess.Count) remaining)..." -NoNewline -ForegroundColor Gray
+            Write-Host "`r  > Discovered $($allGroups.Count) unique groups (scanning level $groupsProcessed, $($groupsToProcess.Count) remaining)..." -NoNewline -ForegroundColor Gray
         }
     }
 
     Write-Host "`r" -NoNewline  # Clear the progress line
-    Write-Log "Found $($allGroups.Count) process groups" -Level Success
+    Write-Log "Found $($allGroups.Count) unique process groups" -Level Success
     return $allGroups
 }
 
