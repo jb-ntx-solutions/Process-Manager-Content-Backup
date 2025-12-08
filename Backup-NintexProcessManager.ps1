@@ -217,7 +217,9 @@ function Get-AllProcessGroupsRecursive {
                     continue
                 }
 
-                $groupPath = if ($current.Path) { "$($current.Path)\$($group.title)" } else { $group.title }
+                # Sanitize the group title to prevent invalid path characters
+                $safeGroupTitle = Get-SafeFileName -FileName $group.title
+                $groupPath = if ($current.Path) { "$($current.Path)\$safeGroupTitle" } else { $safeGroupTitle }
 
                 $groupInfo = [PSCustomObject]@{
                     Id = $group.id
@@ -738,11 +740,37 @@ function Start-Backup {
 
         if ($Mode -eq "XMLExport") {
             $filePath = Join-Path -Path $outputFolder -ChildPath "$safeFileName.xml"
-            $success = Export-ProcessAsXML -SiteUrl $siteUrl -Token $token -ProcessUniqueId $process.processUniqueId -OutputPath $filePath
         }
         else {
             # ProcessPrint or ProcessPrintAndDocuments
             $filePath = Join-Path -Path $outputFolder -ChildPath "$safeFileName.pdf"
+        }
+
+        # Check if path length exceeds Windows MAX_PATH (260 characters)
+        if ($filePath.Length -gt 260) {
+            Write-Log "Path too long ($($filePath.Length) chars), truncating filename: $($process.processName)" -Level Warning
+
+            # Calculate how much we need to truncate
+            $extension = if ($Mode -eq "XMLExport") { ".xml" } else { ".pdf" }
+            $maxFileNameLength = 260 - $outputFolder.Length - $extension.Length - 1  # -1 for the path separator
+
+            if ($maxFileNameLength -gt 20) {
+                $safeFileName = $safeFileName.Substring(0, [Math]::Min($safeFileName.Length, $maxFileNameLength))
+                $filePath = Join-Path -Path $outputFolder -ChildPath "$safeFileName$extension"
+            }
+            else {
+                Write-Log "Cannot create valid path for process: $($process.processName). Output folder path is too long." -Level Error
+                $failureCount++
+                continue
+            }
+        }
+
+        # Export the process
+        if ($Mode -eq "XMLExport") {
+            $success = Export-ProcessAsXML -SiteUrl $siteUrl -Token $token -ProcessUniqueId $process.processUniqueId -OutputPath $filePath
+        }
+        else {
+            # ProcessPrint or ProcessPrintAndDocuments
             $success = Export-ProcessAsPDF -SiteUrl $siteUrl -Token $token -ProcessUniqueId $process.processUniqueId -OutputPath $filePath
         }
 
@@ -827,6 +855,27 @@ function Start-Backup {
             $safeFileName = Get-SafeFileName -FileName $document.documentName
 
             $filePath = Join-Path -Path $documentsFolder -ChildPath $safeFileName
+
+            # Check if path length exceeds Windows MAX_PATH (260 characters)
+            if ($filePath.Length -gt 260) {
+                Write-Log "Document path too long ($($filePath.Length) chars), truncating filename: $($document.documentName)" -Level Warning
+
+                # Calculate how much we need to truncate
+                $fileExtension = [System.IO.Path]::GetExtension($safeFileName)
+                $maxFileNameLength = 260 - $documentsFolder.Length - $fileExtension.Length - 1  # -1 for the path separator
+
+                if ($maxFileNameLength -gt 20) {
+                    $fileNameWithoutExt = [System.IO.Path]::GetFileNameWithoutExtension($safeFileName)
+                    $fileNameWithoutExt = $fileNameWithoutExt.Substring(0, [Math]::Min($fileNameWithoutExt.Length, $maxFileNameLength))
+                    $safeFileName = "$fileNameWithoutExt$fileExtension"
+                    $filePath = Join-Path -Path $documentsFolder -ChildPath $safeFileName
+                }
+                else {
+                    Write-Log "Cannot create valid path for document: $($document.documentName). Output folder path is too long." -Level Error
+                    $docFailureCount++
+                    continue
+                }
+            }
 
             # Export document
             $docSuccess = Export-Document -SiteUrl $siteUrl -Token $token -DocumentUniqueId $document.documentUniqueId -DocumentName $document.documentName -OutputPath $filePath
