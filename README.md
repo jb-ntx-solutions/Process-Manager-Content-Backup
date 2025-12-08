@@ -348,6 +348,14 @@ For issues or questions, please contact your Nintex support representative or sy
 
 ## Version History
 
+### Version 1.2.3 (2025-12-08)
+- **Fixed excessive API calls during group hierarchy retrieval**
+- Added queue tracking to prevent queuing the same group multiple times
+- Dramatically reduced number of unnecessary API calls
+- Groups with `hasChild=true` are now only queued once
+- Progress messages now show actual API call count vs unique groups found
+- Enhanced verbose logging for queue operations
+
 ### Version 1.2.2 (2025-12-08)
 - **Fixed group hierarchy duplication bug**
 - Added deduplication logic using UniqueId tracking

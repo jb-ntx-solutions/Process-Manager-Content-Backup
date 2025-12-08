@@ -156,6 +156,7 @@ function Get-AllProcessGroupsRecursive {
 
     $allGroups = @()
     $processedGroupIds = @{}  # Track processed groups by UniqueId
+    $queuedGroupIds = @{}     # Track groups already queued to prevent duplicate API calls
     $groupsToProcess = @(@{ UniqueId = $null; Path = "" })
     $groupsProcessed = 0
 
@@ -187,20 +188,26 @@ function Get-AllProcessGroupsRecursive {
                 $allGroups += $groupInfo
                 $processedGroupIds[$group.uniqueId] = $true
 
-                if ($group.hasChild) {
+                # Only queue groups that have children AND haven't been queued yet
+                if ($group.hasChild -and -not $queuedGroupIds.ContainsKey($group.uniqueId)) {
                     $groupsToProcess += @{ UniqueId = $group.uniqueId; Path = $groupPath }
+                    $queuedGroupIds[$group.uniqueId] = $true
+                    Write-Verbose "Queued group for child processing: $($group.title) (UniqueId: $($group.uniqueId))"
+                }
+                elseif ($group.hasChild -and $queuedGroupIds.ContainsKey($group.uniqueId)) {
+                    Write-Verbose "Skipping already queued group: $($group.title) (UniqueId: $($group.uniqueId))"
                 }
             }
         }
 
         # Show progress update every few groups
         if ($groupsProcessed % 5 -eq 0 -or $groupsToProcess.Count -eq 0) {
-            Write-Host "`r  > Discovered $($allGroups.Count) unique groups (scanning level $groupsProcessed, $($groupsToProcess.Count) remaining)..." -NoNewline -ForegroundColor Gray
+            Write-Host "`r  > Discovered $($allGroups.Count) unique groups ($groupsProcessed API calls, $($groupsToProcess.Count) remaining)..." -NoNewline -ForegroundColor Gray
         }
     }
 
     Write-Host "`r" -NoNewline  # Clear the progress line
-    Write-Log "Found $($allGroups.Count) unique process groups" -Level Success
+    Write-Log "Found $($allGroups.Count) unique process groups ($groupsProcessed API calls)" -Level Success
     return $allGroups
 }
 
