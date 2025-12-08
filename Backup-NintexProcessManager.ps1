@@ -1,0 +1,471 @@
+<#
+.SYNOPSIS
+    Backs up Nintex Process Manager content to local files.
+
+.DESCRIPTION
+    This script exports processes and documents from a Nintex Process Manager site.
+    Three export modes are available:
+    - XMLExport: Exports processes as XML files
+    - ProcessPrint: Exports processes as PDF files
+    - ProcessPrintAndDocuments: Exports processes as PDF files and includes linked documents
+
+.PARAMETER Mode
+    The export mode: XMLExport, ProcessPrint, or ProcessPrintAndDocuments
+
+.EXAMPLE
+    .\Backup-NintexProcessManager.ps1 -Mode XMLExport
+
+.EXAMPLE
+    .\Backup-NintexProcessManager.ps1 -Mode ProcessPrint
+
+.NOTES
+    Author: Nintex
+    Date: 2025-12-08
+#>
+
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $false)]
+    [ValidateSet("XMLExport", "ProcessPrint", "ProcessPrintAndDocuments")]
+    [string]$Mode
+)
+
+#region Helper Functions
+
+function Write-Log {
+    param(
+        [string]$Message,
+        [ValidateSet("Info", "Success", "Warning", "Error")]
+        [string]$Level = "Info"
+    )
+
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $color = switch ($Level) {
+        "Info" { "Cyan" }
+        "Success" { "Green" }
+        "Warning" { "Yellow" }
+        "Error" { "Red" }
+    }
+
+    Write-Host "[$timestamp] " -NoNewline
+    Write-Host "$Message" -ForegroundColor $color
+}
+
+function Get-SafeFileName {
+    param([string]$FileName)
+
+    $invalidChars = [IO.Path]::GetInvalidFileNameChars() -join ''
+    $sanitized = $FileName -replace "[$invalidChars]", '_'
+    $sanitized = $sanitized -replace '\s+', ' '
+    $sanitized = $sanitized.Trim()
+
+    # Limit length to avoid path issues
+    if ($sanitized.Length -gt 200) {
+        $sanitized = $sanitized.Substring(0, 200)
+    }
+
+    return $sanitized
+}
+
+function Get-AuthToken {
+    param(
+        [string]$SiteUrl,
+        [string]$Username,
+        [string]$Password
+    )
+
+    Write-Log "Authenticating to $SiteUrl..." -Level Info
+
+    # Extract tenant ID from site URL
+    $uri = [System.Uri]$SiteUrl
+    $pathSegments = $uri.AbsolutePath.Trim('/').Split('/')
+    $tenantId = $pathSegments[0]
+
+    $tokenUrl = "$($uri.Scheme)://$($uri.Host)/$tenantId/oauth2/token"
+
+    $body = @{
+        grant_type = "password"
+        username = $Username
+        password = $Password
+        duration = "60000"
+    }
+
+    try {
+        $response = Invoke-RestMethod -Uri $tokenUrl -Method Post -Body $body -ContentType "application/x-www-form-urlencoded"
+        Write-Log "Authentication successful" -Level Success
+        return $response.access_token
+    }
+    catch {
+        Write-Log "Authentication failed: $($_.Exception.Message)" -Level Error
+        throw
+    }
+}
+
+function Get-ProcessGroups {
+    param(
+        [string]$SiteUrl,
+        [string]$Token,
+        [string]$ParentUniqueId = $null
+    )
+
+    $uri = [System.Uri]$SiteUrl
+    $pathSegments = $uri.AbsolutePath.Trim('/').Split('/')
+    $tenantId = $pathSegments[0]
+
+    $endpoint = "$($uri.Scheme)://$($uri.Host)/$tenantId/Process/View/GetChildProcessGroupTreeItems"
+
+    if ($ParentUniqueId) {
+        $endpoint += "?uniqueId=$ParentUniqueId"
+    }
+
+    $headers = @{
+        Authorization = "Bearer $Token"
+    }
+
+    try {
+        $response = Invoke-RestMethod -Uri $endpoint -Method Get -Headers $headers
+        return $response.treeItems
+    }
+    catch {
+        Write-Log "Failed to get process groups: $($_.Exception.Message)" -Level Error
+        throw
+    }
+}
+
+function Get-AllProcessGroupsRecursive {
+    param(
+        [string]$SiteUrl,
+        [string]$Token
+    )
+
+    Write-Log "Retrieving process group hierarchy..." -Level Info
+
+    $allGroups = @()
+    $groupsToProcess = @(@{ UniqueId = $null; Path = "" })
+
+    while ($groupsToProcess.Count -gt 0) {
+        $current = $groupsToProcess[0]
+        $groupsToProcess = $groupsToProcess[1..($groupsToProcess.Count - 1)]
+
+        $groups = Get-ProcessGroups -SiteUrl $SiteUrl -Token $Token -ParentUniqueId $current.UniqueId
+
+        foreach ($group in $groups) {
+            if ($group.itemType -eq "group") {
+                $groupPath = if ($current.Path) { "$($current.Path)\$($group.title)" } else { $group.title }
+
+                $groupInfo = [PSCustomObject]@{
+                    Id = $group.id
+                    UniqueId = $group.uniqueId
+                    Title = $group.title
+                    Path = $groupPath
+                    HasChild = $group.hasChild
+                }
+
+                $allGroups += $groupInfo
+
+                if ($group.hasChild) {
+                    $groupsToProcess += @{ UniqueId = $group.uniqueId; Path = $groupPath }
+                }
+            }
+        }
+    }
+
+    Write-Log "Found $($allGroups.Count) process groups" -Level Success
+    return $allGroups
+}
+
+function Get-AllProcesses {
+    param(
+        [string]$SiteUrl,
+        [string]$Token,
+        [bool]$IncludeArchived
+    )
+
+    Write-Log "Retrieving process list..." -Level Info
+
+    $uri = [System.Uri]$SiteUrl
+    $pathSegments = $uri.AbsolutePath.Trim('/').Split('/')
+    $tenantId = $pathSegments[0]
+
+    $baseEndpoint = "$($uri.Scheme)://$($uri.Host)/$tenantId/Bff/Process/api/v1/processes"
+
+    $headers = @{
+        Authorization = "Bearer $Token"
+    }
+
+    $allProcesses = @()
+    $listTypes = @(0)  # Active processes
+
+    if ($IncludeArchived) {
+        $listTypes += 7  # Archived processes
+    }
+
+    foreach ($listType in $listTypes) {
+        $page = 1
+        $pageSize = 100
+        $totalProcessed = 0
+
+        do {
+            $endpoint = "$baseEndpoint?Page=$page&PageSize=$pageSize&Listtype=$listType"
+
+            try {
+                $response = Invoke-RestMethod -Uri $endpoint -Method Get -Headers $headers
+
+                $allProcesses += $response.items
+                $totalProcessed += $response.items.Count
+
+                $statusType = if ($listType -eq 0) { "active" } else { "archived" }
+                Write-Log "Retrieved $totalProcessed of $($response.totalItemCount) $statusType processes..." -Level Info
+
+                $page++
+            }
+            catch {
+                Write-Log "Failed to get processes (Page $page): $($_.Exception.Message)" -Level Error
+                throw
+            }
+        } while ($totalProcessed -lt $response.totalItemCount)
+    }
+
+    Write-Log "Retrieved total of $($allProcesses.Count) processes" -Level Success
+    return $allProcesses
+}
+
+function Export-ProcessAsXML {
+    param(
+        [string]$SiteUrl,
+        [string]$Token,
+        [string]$ProcessUniqueId,
+        [string]$OutputPath
+    )
+
+    $uri = [System.Uri]$SiteUrl
+    $pathSegments = $uri.AbsolutePath.Trim('/').Split('/')
+    $tenantId = $pathSegments[0]
+
+    $endpoint = "$($uri.Scheme)://$($uri.Host)/$tenantId/Process/ImportExport/ExportProcess/$ProcessUniqueId`?isMinimode=False&latest=True&format=XML"
+
+    $headers = @{
+        Authorization = "Bearer $Token"
+    }
+
+    try {
+        Invoke-RestMethod -Uri $endpoint -Method Get -Headers $headers -OutFile $OutputPath
+        return $true
+    }
+    catch {
+        Write-Log "Failed to export XML for process $ProcessUniqueId : $($_.Exception.Message)" -Level Error
+        return $false
+    }
+}
+
+function Export-ProcessAsPDF {
+    param(
+        [string]$SiteUrl,
+        [string]$Token,
+        [string]$ProcessUniqueId,
+        [string]$OutputPath
+    )
+
+    $uri = [System.Uri]$SiteUrl
+    $pathSegments = $uri.AbsolutePath.Trim('/').Split('/')
+    $tenantId = $pathSegments[0]
+
+    $endpoint = "$($uri.Scheme)://$($uri.Host)/$tenantId/Process/ImportExport/Print?ProcessUniqueId=$ProcessUniqueId&IncludeFlowchart=true&IncludeProcedure=true&IncludeImages=true&IncludeBusinessAnalysis=true&IncludeFullNotes=true&IncludeTimeframes=true&IncludeRiskReference=true&IncludeCosts=true&IsShowIncludeCosts=true&Orientation=Portrait&PaperKind=A4&NoOfColumns=2&Format=PDF&IsMinimode=false&GroupOption=Group&IncludeSubProcesses=false"
+
+    $headers = @{
+        Authorization = "Bearer $Token"
+    }
+
+    try {
+        Invoke-RestMethod -Uri $endpoint -Method Get -Headers $headers -OutFile $OutputPath
+        return $true
+    }
+    catch {
+        Write-Log "Failed to export PDF for process $ProcessUniqueId : $($_.Exception.Message)" -Level Error
+        return $false
+    }
+}
+
+function New-GroupFolderStructure {
+    param(
+        [string]$BaseOutputPath,
+        [array]$ProcessGroups
+    )
+
+    Write-Log "Creating folder structure..." -Level Info
+
+    $folderMap = @{}
+
+    foreach ($group in $ProcessGroups) {
+        $folderPath = Join-Path -Path $BaseOutputPath -ChildPath $group.Path
+
+        if (-not (Test-Path -Path $folderPath)) {
+            New-Item -Path $folderPath -ItemType Directory -Force | Out-Null
+        }
+
+        $folderMap[$group.UniqueId] = $folderPath
+    }
+
+    Write-Log "Folder structure created" -Level Success
+    return $folderMap
+}
+
+#endregion
+
+#region Main Script
+
+function Start-Backup {
+    # Display banner
+    Write-Host ""
+    Write-Host "================================================" -ForegroundColor Cyan
+    Write-Host "  Nintex Process Manager Backup Script" -ForegroundColor Cyan
+    Write-Host "================================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    # Get export mode if not provided
+    if (-not $Mode) {
+        Write-Host "Select export mode:" -ForegroundColor Yellow
+        Write-Host "  1. XML Export" -ForegroundColor White
+        Write-Host "  2. Process Print (PDF)" -ForegroundColor White
+        Write-Host "  3. Process Print and Documents (PDF + Documents)" -ForegroundColor White
+        Write-Host ""
+
+        do {
+            $selection = Read-Host "Enter selection (1-3)"
+        } while ($selection -notin @("1", "2", "3"))
+
+        $Mode = switch ($selection) {
+            "1" { "XMLExport" }
+            "2" { "ProcessPrint" }
+            "3" { "ProcessPrintAndDocuments" }
+        }
+    }
+
+    Write-Log "Export mode: $Mode" -Level Info
+    Write-Host ""
+
+    # Get site URL
+    Write-Host "Enter your Process Manager site URL" -ForegroundColor Yellow
+    Write-Host "  Example: https://us.promapp.com/siteName" -ForegroundColor Gray
+    $siteUrl = Read-Host "Site URL"
+    $siteUrl = $siteUrl.TrimEnd('/')
+
+    # Get credentials
+    Write-Host ""
+    Write-Host "Enter service account credentials" -ForegroundColor Yellow
+    $username = Read-Host "Username"
+    $securePassword = Read-Host "Password" -AsSecureString
+    $password = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+        [Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
+    )
+
+    # Get output directory
+    Write-Host ""
+    Write-Host "Enter output directory path" -ForegroundColor Yellow
+    $outputPath = Read-Host "Output directory"
+
+    if (-not (Test-Path -Path $outputPath)) {
+        Write-Log "Creating output directory: $outputPath" -Level Info
+        New-Item -Path $outputPath -ItemType Directory -Force | Out-Null
+    }
+
+    # Ask about archived processes
+    Write-Host ""
+    $includeArchivedResponse = Read-Host "Include archived processes? (Y/N)"
+    $includeArchived = $includeArchivedResponse -eq 'Y' -or $includeArchivedResponse -eq 'y'
+
+    Write-Host ""
+    Write-Host "================================================" -ForegroundColor Cyan
+    Write-Host "  Starting Backup Process" -ForegroundColor Cyan
+    Write-Host "================================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    # Authenticate
+    $token = Get-AuthToken -SiteUrl $siteUrl -Username $username -Password $password
+
+    # Get process groups
+    $processGroups = Get-AllProcessGroupsRecursive -SiteUrl $siteUrl -Token $token
+
+    # Create folder structure
+    $folderMap = New-GroupFolderStructure -BaseOutputPath $outputPath -ProcessGroups $processGroups
+
+    # Get all processes
+    $processes = Get-AllProcesses -SiteUrl $siteUrl -Token $token -IncludeArchived $includeArchived
+
+    # Export processes
+    Write-Log "Starting process export..." -Level Info
+    Write-Host ""
+
+    $successCount = 0
+    $failureCount = 0
+    $totalCount = $processes.Count
+
+    for ($i = 0; $i -lt $totalCount; $i++) {
+        $process = $processes[$i]
+        $currentNum = $i + 1
+
+        Write-Progress -Activity "Exporting Processes" -Status "Processing $currentNum of $totalCount : $($process.processName)" -PercentComplete (($currentNum / $totalCount) * 100)
+
+        # Determine output folder
+        $outputFolder = $folderMap[$process.groupUniqueId]
+
+        if (-not $outputFolder) {
+            # Group not found in our hierarchy, use a default "Ungrouped" folder
+            $outputFolder = Join-Path -Path $outputPath -ChildPath "_Ungrouped"
+            if (-not (Test-Path -Path $outputFolder)) {
+                New-Item -Path $outputFolder -ItemType Directory -Force | Out-Null
+            }
+        }
+
+        # Sanitize process name for filename
+        $safeFileName = Get-SafeFileName -FileName $process.processName
+
+        # Export based on mode
+        $success = $false
+
+        if ($Mode -eq "XMLExport") {
+            $filePath = Join-Path -Path $outputFolder -ChildPath "$safeFileName.xml"
+            $success = Export-ProcessAsXML -SiteUrl $siteUrl -Token $token -ProcessUniqueId $process.processUniqueId -OutputPath $filePath
+        }
+        else {
+            # ProcessPrint or ProcessPrintAndDocuments
+            $filePath = Join-Path -Path $outputFolder -ChildPath "$safeFileName.pdf"
+            $success = Export-ProcessAsPDF -SiteUrl $siteUrl -Token $token -ProcessUniqueId $process.processUniqueId -OutputPath $filePath
+        }
+
+        if ($success) {
+            $successCount++
+            Write-Log "[$currentNum/$totalCount] Exported: $($process.processName)" -Level Success
+        }
+        else {
+            $failureCount++
+        }
+
+        # Brief pause to avoid overwhelming the server
+        Start-Sleep -Milliseconds 100
+    }
+
+    Write-Progress -Activity "Exporting Processes" -Completed
+
+    # Summary
+    Write-Host ""
+    Write-Host "================================================" -ForegroundColor Cyan
+    Write-Host "  Backup Complete" -ForegroundColor Cyan
+    Write-Host "================================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Log "Total processes: $totalCount" -Level Info
+    Write-Log "Successfully exported: $successCount" -Level Success
+
+    if ($failureCount -gt 0) {
+        Write-Log "Failed exports: $failureCount" -Level Warning
+    }
+
+    Write-Host ""
+    Write-Log "Backup saved to: $outputPath" -Level Info
+    Write-Host ""
+}
+
+# Execute main script
+Start-Backup
+
+#endregion

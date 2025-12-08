@@ -1,0 +1,218 @@
+# Nintex Process Manager Content Backup Script
+
+A PowerShell script to backup and export content from Nintex Process Manager sites locally.
+
+## Overview
+
+This script connects to a Nintex Process Manager site and exports all processes (and optionally documents) to a local folder structure that mirrors the Process Manager group hierarchy.
+
+## Features
+
+- **Three Export Modes:**
+  - **XML Export**: Exports all processes as XML files
+  - **Process Print**: Exports all processes as PDF files
+  - **Process Print and Documents**: Exports processes as PDF files and includes linked documents (coming soon)
+
+- **Comprehensive Backup:**
+  - Retrieves complete process group hierarchy
+  - Creates matching folder structure locally
+  - Handles pagination for large process lists
+  - Optional inclusion of archived processes
+  - Progress tracking and detailed logging
+
+- **Error Handling:**
+  - Graceful failure handling for individual processes
+  - Summary report of successful and failed exports
+  - Detailed logging with timestamps
+
+## Prerequisites
+
+- PowerShell 5.1 or later
+- Network access to your Nintex Process Manager site
+- Valid service account credentials with appropriate permissions
+
+## Usage
+
+### Interactive Mode
+
+Simply run the script without parameters to be prompted for all required information:
+
+```powershell
+.\Backup-NintexProcessManager.ps1
+```
+
+You will be prompted for:
+1. Export mode selection (XML, Process Print, or Process Print and Documents)
+2. Site URL (e.g., `https://us.promapp.com/siteName`)
+3. Username and password
+4. Output directory path
+5. Whether to include archived processes
+
+### Command-Line Mode
+
+You can also specify the export mode via parameter:
+
+```powershell
+.\Backup-NintexProcessManager.ps1 -Mode XMLExport
+```
+
+```powershell
+.\Backup-NintexProcessManager.ps1 -Mode ProcessPrint
+```
+
+```powershell
+.\Backup-NintexProcessManager.ps1 -Mode ProcessPrintAndDocuments
+```
+
+## Output Structure
+
+The script creates a folder structure that mirrors your Process Manager group hierarchy:
+
+```
+OutputDirectory/
+├── Group 1/
+│   ├── Process A.xml (or .pdf)
+│   ├── Process B.xml (or .pdf)
+│   └── Subgroup 1/
+│       └── Process C.xml (or .pdf)
+├── Group 2/
+│   └── Process D.xml (or .pdf)
+└── _Ungrouped/
+    └── Orphaned Process.xml (or .pdf)
+```
+
+## Authentication
+
+The script uses OAuth2 password grant flow to authenticate with your Process Manager site. The authentication token is valid for the duration specified in the API call (default: 60000 seconds).
+
+### Site URL Format
+
+Your site URL should be in one of these formats:
+- `https://us.promapp.com/siteName`
+- `https://au.promapp.com/siteName`
+- `https://eu.promapp.com/siteName`
+
+The script automatically extracts the tenant ID from the URL path.
+
+## API Endpoints Used
+
+The script interacts with the following Nintex Process Manager APIs:
+
+1. **Authentication**: `POST /oauth2/token`
+2. **Process Groups**: `GET /Process/View/GetChildProcessGroupTreeItems`
+3. **Process List**: `GET /Bff/Process/api/v1/processes`
+4. **XML Export**: `GET /Process/ImportExport/ExportProcess/{processId}`
+5. **PDF Export**: `GET /Process/ImportExport/Print`
+
+## Export Modes Explained
+
+### XML Export
+
+Exports each process as an XML file containing:
+- Process metadata (name, version, owner, expert, etc.)
+- Process procedures and activities
+- Triggers, inputs, and outputs
+- Linked stakeholders
+- Risk controls and targets
+- Full process structure
+
+**Best for**: System migrations, archival, programmatic processing
+
+### Process Print (PDF)
+
+Exports each process as a formatted PDF including:
+- Flowchart visualization
+- Procedures and tasks
+- Business analysis information
+- Full notes and descriptions
+- Timeframes and costs
+- Risk references
+
+**Best for**: Documentation, sharing with stakeholders, compliance
+
+### Process Print and Documents (Coming Soon)
+
+Exports processes as PDFs and downloads all linked documents.
+
+## Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| Mode | String | No | Export mode: `XMLExport`, `ProcessPrint`, or `ProcessPrintAndDocuments` |
+
+## Examples
+
+### Example 1: Export All Active Processes as XML
+
+```powershell
+.\Backup-NintexProcessManager.ps1 -Mode XMLExport
+
+# When prompted:
+# Site URL: https://us.promapp.com/mycompany
+# Username: backup.service@company.com
+# Password: ********
+# Output directory: C:\Backups\ProcessManager\2025-12-08
+# Include archived processes? N
+```
+
+### Example 2: Export All Processes (Including Archived) as PDF
+
+```powershell
+.\Backup-NintexProcessManager.ps1 -Mode ProcessPrint
+
+# When prompted, select 'Y' for including archived processes
+```
+
+## Troubleshooting
+
+### Authentication Failures
+
+- Verify your username and password are correct
+- Ensure the service account has appropriate permissions
+- Check that the site URL is correct and accessible
+
+### Export Failures
+
+Individual process export failures are logged but don't stop the script. Check the console output for specific error messages.
+
+### Path Length Issues
+
+Windows has a 260-character path limit. The script sanitizes filenames and limits their length, but very deep folder hierarchies combined with long process names may still cause issues. Consider using a shorter output path.
+
+## Performance Considerations
+
+- The script includes a 100ms delay between process exports to avoid overwhelming the server
+- Large sites with hundreds of processes may take considerable time to complete
+- PDF exports are generally larger and slower than XML exports
+
+## Security Notes
+
+- Credentials are handled securely using PowerShell's `SecureString`
+- The authentication token is only stored in memory for the duration of the script
+- No credentials are written to disk or logs
+
+## Roadmap
+
+- [ ] Document export functionality for ProcessPrintAndDocuments mode
+- [ ] Support for parallel process exports
+- [ ] Resume capability for interrupted backups
+- [ ] Incremental backup support (only export changed processes)
+- [ ] Export filtering by group, date, or other criteria
+
+## License
+
+This script is provided as-is for use with Nintex Process Manager.
+
+## Support
+
+For issues or questions, please contact your Nintex support representative or system administrator.
+
+## Version History
+
+### Version 1.0.0 (2025-12-08)
+- Initial release
+- XML export support
+- PDF export support
+- Recursive group hierarchy
+- Archived process support
+- Progress tracking and logging
