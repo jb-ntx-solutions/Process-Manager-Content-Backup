@@ -348,6 +348,16 @@ For issues or questions, please contact your Nintex support representative or sy
 
 ## Version History
 
+### Version 1.2.5 (2025-12-08)
+- **Added comprehensive URI validation and error diagnostics**
+- Added SiteUrl parameter validation to all URI-parsing functions
+- Added detailed error messages identifying which function failed
+- Added verbose logging for endpoint construction in Get-AllProcesses and Get-AllDocuments
+- Added endpoint URL validation before Invoke-RestMethod calls
+- Fixed query string escaping with backtick before '?' character
+- Enhanced error logging with full error details and endpoint information
+- Helps diagnose URI parsing errors with clear diagnostic information
+
 ### Version 1.2.4 (2025-12-08)
 - **Fixed infinite loop/hang when processing group hierarchy**
 - Replaced array slicing with proper ArrayList for queue management
