@@ -32,6 +32,8 @@ This script connects to a Nintex Process Manager site and exports all processes 
   - Graceful failure handling for individual processes and documents
   - Summary report of successful and failed exports
   - Detailed logging with timestamps
+  - Global error handler for unexpected failures
+  - Script waits for user input before closing (prevents console window from disappearing)
 
 ## Prerequisites
 
@@ -345,6 +347,13 @@ This script is provided as-is for use with Nintex Process Manager.
 For issues or questions, please contact your Nintex support representative or system administrator.
 
 ## Version History
+
+### Version 1.2.1 (2025-12-08)
+- **Added wait-for-user-input before closing**
+- Script now pauses with "Press any key to exit..." message
+- Console window stays open after completion or error
+- Global error handler catches unexpected failures with detailed error display
+- Users can review results before window closes
 
 ### Version 1.2.0 (2025-12-08)
 - **Enhanced progress tracking and status indicators**

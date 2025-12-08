@@ -725,7 +725,27 @@ function Start-Backup {
     Write-Host ""
 }
 
-# Execute main script
-Start-Backup
+# Execute main script with error handling
+try {
+    Start-Backup
+}
+catch {
+    Write-Host ""
+    Write-Host "================================================" -ForegroundColor Red
+    Write-Host "  Script Error" -ForegroundColor Red
+    Write-Host "================================================" -ForegroundColor Red
+    Write-Host ""
+    Write-Log "An unexpected error occurred: $($_.Exception.Message)" -Level Error
+    Write-Host ""
+    Write-Host "Error Details:" -ForegroundColor Red
+    Write-Host $_.Exception.ToString() -ForegroundColor Red
+    Write-Host ""
+}
+finally {
+    # Wait for user input before closing
+    Write-Host ""
+    Write-Host "Press any key to exit..." -ForegroundColor Yellow
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+}
 
 #endregion
