@@ -571,6 +571,28 @@ function Export-Document {
         try {
             $webClient.DownloadFile($endpoint, $tempFile)
         }
+        catch [System.Net.WebException] {
+            # Handle web exceptions with specific HTTP status codes
+            $statusCode = $null
+            if ($_.Exception.Response) {
+                $statusCode = [int]$_.Exception.Response.StatusCode
+            }
+
+            if ($statusCode -eq 404) {
+                Write-Log "Failed to export document '$DocumentName': Document not found (404). It may have been deleted or is not accessible." -Level Warning
+            }
+            elseif ($statusCode -eq 403) {
+                Write-Log "Failed to export document '$DocumentName': Access denied (403). Check permissions." -Level Warning
+            }
+            elseif ($statusCode -eq 401) {
+                Write-Log "Failed to export document '$DocumentName': Unauthorized (401). Authentication may have expired." -Level Error
+            }
+            else {
+                Write-Log "Failed to export document '$DocumentName': HTTP $statusCode - $($_.Exception.Message)" -Level Error
+            }
+
+            return $false
+        }
         finally {
             $webClient.Dispose()
         }
@@ -600,7 +622,7 @@ function Export-Document {
         }
     }
     catch {
-        Write-Log "Failed to export document $DocumentName : $($_.Exception.Message)" -Level Error
+        Write-Log "Failed to export document '$DocumentName': $($_.Exception.Message)" -Level Error
 
         # Clean up temp file if it exists
         if (Test-Path -Path $tempFile) {
