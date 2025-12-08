@@ -51,6 +51,20 @@ function Write-Log {
     Write-Host "$Message" -ForegroundColor $color
 }
 
+function Format-ElapsedTime {
+    param([TimeSpan]$TimeSpan)
+
+    if ($TimeSpan.TotalHours -ge 1) {
+        return "{0:D2}h {1:D2}m {2:D2}s" -f $TimeSpan.Hours, $TimeSpan.Minutes, $TimeSpan.Seconds
+    }
+    elseif ($TimeSpan.TotalMinutes -ge 1) {
+        return "{0:D2}m {2:D2}s" -f $TimeSpan.Hours, $TimeSpan.Minutes, $TimeSpan.Seconds
+    }
+    else {
+        return "{0:D2}s" -f $TimeSpan.Seconds
+    }
+}
+
 function Get-SafeFileName {
     param([string]$FileName)
 
@@ -142,12 +156,14 @@ function Get-AllProcessGroupsRecursive {
 
     $allGroups = @()
     $groupsToProcess = @(@{ UniqueId = $null; Path = "" })
+    $groupsProcessed = 0
 
     while ($groupsToProcess.Count -gt 0) {
         $current = $groupsToProcess[0]
         $groupsToProcess = $groupsToProcess[1..($groupsToProcess.Count - 1)]
 
         $groups = Get-ProcessGroups -SiteUrl $SiteUrl -Token $Token -ParentUniqueId $current.UniqueId
+        $groupsProcessed++
 
         foreach ($group in $groups) {
             if ($group.itemType -eq "group") {
@@ -168,8 +184,14 @@ function Get-AllProcessGroupsRecursive {
                 }
             }
         }
+
+        # Show progress update every few groups
+        if ($groupsProcessed % 5 -eq 0 -or $groupsToProcess.Count -eq 0) {
+            Write-Host "`r  > Discovered $($allGroups.Count) groups (scanning level $groupsProcessed, $($groupsToProcess.Count) remaining)..." -NoNewline -ForegroundColor Gray
+        }
     }
 
+    Write-Host "`r" -NoNewline  # Clear the progress line
     Write-Log "Found $($allGroups.Count) process groups" -Level Success
     return $allGroups
 }
@@ -496,6 +518,9 @@ function Start-Backup {
     Write-Host "================================================" -ForegroundColor Cyan
     Write-Host ""
 
+    # Track overall backup time
+    $backupStartTime = Get-Date
+
     # Authenticate
     $token = Get-AuthToken -SiteUrl $siteUrl -Username $username -Password $password
 
@@ -515,12 +540,27 @@ function Start-Backup {
     $successCount = 0
     $failureCount = 0
     $totalCount = $processes.Count
+    $processStartTime = Get-Date
 
     for ($i = 0; $i -lt $totalCount; $i++) {
         $process = $processes[$i]
         $currentNum = $i + 1
 
-        Write-Progress -Activity "Exporting Processes" -Status "Processing $currentNum of $totalCount : $($process.processName)" -PercentComplete (($currentNum / $totalCount) * 100)
+        # Calculate elapsed time and rate
+        $elapsed = (Get-Date) - $processStartTime
+        $rate = if ($elapsed.TotalSeconds -gt 0) { [math]::Round($currentNum / $elapsed.TotalSeconds, 2) } else { 0 }
+        $elapsedStr = Format-ElapsedTime -TimeSpan $elapsed
+
+        # Estimate time remaining
+        $remaining = if ($rate -gt 0) {
+            $remainingSeconds = ($totalCount - $currentNum) / $rate
+            Format-ElapsedTime -TimeSpan ([TimeSpan]::FromSeconds($remainingSeconds))
+        } else {
+            "calculating..."
+        }
+
+        $statusMessage = "Processing $currentNum of $totalCount | Elapsed: $elapsedStr | Rate: $rate/sec | ETA: $remaining | Current: $($process.processName)"
+        Write-Progress -Activity "Exporting Processes" -Status $statusMessage -PercentComplete (($currentNum / $totalCount) * 100)
 
         # Determine output folder
         $outputFolder = $folderMap[$process.groupUniqueId]
@@ -551,7 +591,10 @@ function Start-Backup {
 
         if ($success) {
             $successCount++
-            Write-Log "[$currentNum/$totalCount] Exported: $($process.processName)" -Level Success
+            # Only log every 10th success to reduce console spam
+            if ($currentNum % 10 -eq 0 -or $currentNum -eq $totalCount) {
+                Write-Log "[$currentNum/$totalCount] Exported $successCount processes so far... (latest: $($process.processName))" -Level Success
+            }
         }
         else {
             $failureCount++
@@ -562,6 +605,8 @@ function Start-Backup {
     }
 
     Write-Progress -Activity "Exporting Processes" -Completed
+    $processElapsed = (Get-Date) - $processStartTime
+    Write-Log "Process export completed in $(Format-ElapsedTime -TimeSpan $processElapsed)" -Level Info
 
     # Export documents if in ProcessPrintAndDocuments mode
     $docSuccessCount = 0
@@ -582,11 +627,27 @@ function Start-Backup {
         Write-Log "Starting document export..." -Level Info
         Write-Host ""
 
+        $docStartTime = Get-Date
+
         for ($i = 0; $i -lt $docTotalCount; $i++) {
             $document = $documents[$i]
             $currentNum = $i + 1
 
-            Write-Progress -Activity "Exporting Documents" -Status "Processing $currentNum of $docTotalCount : $($document.documentName)" -PercentComplete (($currentNum / $docTotalCount) * 100)
+            # Calculate elapsed time and rate
+            $docElapsed = (Get-Date) - $docStartTime
+            $docRate = if ($docElapsed.TotalSeconds -gt 0) { [math]::Round($currentNum / $docElapsed.TotalSeconds, 2) } else { 0 }
+            $docElapsedStr = Format-ElapsedTime -TimeSpan $docElapsed
+
+            # Estimate time remaining
+            $docRemaining = if ($docRate -gt 0) {
+                $remainingSeconds = ($docTotalCount - $currentNum) / $docRate
+                Format-ElapsedTime -TimeSpan ([TimeSpan]::FromSeconds($remainingSeconds))
+            } else {
+                "calculating..."
+            }
+
+            $docStatusMessage = "Processing $currentNum of $docTotalCount | Elapsed: $docElapsedStr | Rate: $docRate/sec | ETA: $docRemaining | Current: $($document.documentName)"
+            Write-Progress -Activity "Exporting Documents" -Status $docStatusMessage -PercentComplete (($currentNum / $docTotalCount) * 100)
 
             # Determine output folder based on primary group
             $outputFolder = $folderMap[$document.primaryGroupUniqueId]
@@ -615,7 +676,10 @@ function Start-Backup {
 
             if ($docSuccess) {
                 $docSuccessCount++
-                Write-Log "[$currentNum/$docTotalCount] Exported: $($document.documentName)" -Level Success
+                # Only log every 10th success to reduce console spam
+                if ($currentNum % 10 -eq 0 -or $currentNum -eq $docTotalCount) {
+                    Write-Log "[$currentNum/$docTotalCount] Exported $docSuccessCount documents so far... (latest: $($document.documentName))" -Level Success
+                }
             }
             else {
                 $docFailureCount++
@@ -626,13 +690,18 @@ function Start-Backup {
         }
 
         Write-Progress -Activity "Exporting Documents" -Completed
+        $docTotalElapsed = (Get-Date) - $docStartTime
+        Write-Log "Document export completed in $(Format-ElapsedTime -TimeSpan $docTotalElapsed)" -Level Info
     }
 
     # Summary
+    $totalBackupTime = (Get-Date) - $backupStartTime
     Write-Host ""
     Write-Host "================================================" -ForegroundColor Cyan
     Write-Host "  Backup Complete" -ForegroundColor Cyan
     Write-Host "================================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Log "Total backup time: $(Format-ElapsedTime -TimeSpan $totalBackupTime)" -Level Info
     Write-Host ""
     Write-Log "Total processes: $totalCount" -Level Info
     Write-Log "Successfully exported: $successCount" -Level Success
