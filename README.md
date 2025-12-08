@@ -8,10 +8,11 @@ This script connects to a Nintex Process Manager site and exports all processes 
 
 ## Features
 
-- **Three Export Modes:**
+- **Four Export Modes:**
   - **XML Export**: Exports all processes as XML files
   - **Process Print**: Exports all processes as PDF files
   - **Process Print and Documents**: Exports processes as PDF files and includes all documents from the site
+  - **Documents Only**: Exports only documents organized by group structure (no processes)
 
 - **Comprehensive Backup:**
   - Retrieves complete process group hierarchy
@@ -52,11 +53,11 @@ Simply run the script without parameters to be prompted for all required informa
 ```
 
 You will be prompted for:
-1. Export mode selection (XML, Process Print, or Process Print and Documents)
+1. Export mode selection (XML Export, Process Print, Process Print and Documents, or Documents Only)
 2. Site URL (e.g., `https://us.promapp.com/siteName`)
 3. Username and password
 4. Output directory path
-5. Whether to include archived processes
+5. Whether to include archived processes (only for modes that export processes)
 
 ### Command-Line Mode
 
@@ -72,6 +73,10 @@ You can also specify the export mode via parameter:
 
 ```powershell
 .\Backup-NintexProcessManager.ps1 -Mode ProcessPrintAndDocuments
+```
+
+```powershell
+.\Backup-NintexProcessManager.ps1 -Mode DocumentsOnly
 ```
 
 ## Output Structure
@@ -347,6 +352,15 @@ This script is provided as-is for use with Nintex Process Manager.
 For issues or questions, please contact your Nintex support representative or system administrator.
 
 ## Version History
+
+### Version 1.3.0 (2025-12-08)
+- **Added DocumentsOnly export mode**
+- New fourth export mode that exports only documents organized by group structure
+- Skips process retrieval and export entirely for faster document-only backups
+- Documents are organized into the group hierarchy just like in other modes
+- Archived processes prompt is skipped for DocumentsOnly mode
+- Updated summary statistics to properly handle DocumentsOnly mode
+- Useful for backing up document content without the overhead of exporting process definitions
 
 ### Version 1.2.6 (2025-12-08)
 - **Fixed path construction issues with invalid characters and length limits**
