@@ -348,6 +348,17 @@ For issues or questions, please contact your Nintex support representative or sy
 
 ## Version History
 
+### Version 1.2.6 (2025-12-08)
+- **Fixed path construction issues with invalid characters and length limits**
+- Now sanitizing group titles when building folder hierarchy
+- Prevents invalid characters (especially backslashes) in folder names
+- Added Windows MAX_PATH (260 character) validation for process exports
+- Added Windows MAX_PATH validation for document exports
+- Intelligently truncates filenames when paths exceed limit while preserving file extensions
+- Logs warnings when path truncation occurs
+- Improved error handling for path-related failures
+- Fixes error: "Could not find a part of the path" caused by names like "Innovation \ Renovation"
+
 ### Version 1.2.5 (2025-12-08)
 - **Added comprehensive URI validation and error diagnostics**
 - Added SiteUrl parameter validation to all URI-parsing functions
