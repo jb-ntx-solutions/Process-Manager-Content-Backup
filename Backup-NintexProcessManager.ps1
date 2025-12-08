@@ -90,9 +90,25 @@ function Get-AuthToken {
 
     Write-Log "Authenticating to $SiteUrl..." -Level Info
 
+    # Validate SiteUrl parameter
+    if ([string]::IsNullOrWhiteSpace($SiteUrl)) {
+        throw "SiteUrl parameter is null or empty in Get-AuthToken"
+    }
+
+    try {
+        $uri = [System.Uri]$SiteUrl
+    }
+    catch {
+        throw "Failed to parse SiteUrl '$SiteUrl' as a valid URI in Get-AuthToken: $($_.Exception.Message)"
+    }
+
     # Extract tenant ID from site URL
-    $uri = [System.Uri]$SiteUrl
     $pathSegments = $uri.AbsolutePath.Trim('/').Split('/')
+
+    if ($pathSegments.Length -eq 0 -or [string]::IsNullOrWhiteSpace($pathSegments[0])) {
+        throw "Could not extract tenant ID from site URL '$SiteUrl' in Get-AuthToken. Expected format: https://region.promapp.com/tenantId"
+    }
+
     $tenantId = $pathSegments[0]
 
     $tokenUrl = "$($uri.Scheme)://$($uri.Host)/$tenantId/oauth2/token"
@@ -122,8 +138,24 @@ function Get-ProcessGroups {
         [string]$ParentUniqueId = $null
     )
 
-    $uri = [System.Uri]$SiteUrl
+    # Validate SiteUrl parameter
+    if ([string]::IsNullOrWhiteSpace($SiteUrl)) {
+        throw "SiteUrl parameter is null or empty in Get-ProcessGroups"
+    }
+
+    try {
+        $uri = [System.Uri]$SiteUrl
+    }
+    catch {
+        throw "Failed to parse SiteUrl '$SiteUrl' as a valid URI in Get-ProcessGroups: $($_.Exception.Message)"
+    }
+
     $pathSegments = $uri.AbsolutePath.Trim('/').Split('/')
+
+    if ($pathSegments.Length -eq 0 -or [string]::IsNullOrWhiteSpace($pathSegments[0])) {
+        throw "Could not extract tenant ID from site URL '$SiteUrl' in Get-ProcessGroups"
+    }
+
     $tenantId = $pathSegments[0]
 
     $endpoint = "$($uri.Scheme)://$($uri.Host)/$tenantId/Process/View/GetChildProcessGroupTreeItems"
@@ -233,11 +265,31 @@ function Get-AllProcesses {
 
     Write-Log "Retrieving process list..." -Level Info
 
-    $uri = [System.Uri]$SiteUrl
+    # Validate SiteUrl parameter
+    if ([string]::IsNullOrWhiteSpace($SiteUrl)) {
+        throw "SiteUrl parameter is null or empty"
+    }
+
+    Write-Verbose "Get-AllProcesses called with SiteUrl: $SiteUrl"
+
+    try {
+        $uri = [System.Uri]$SiteUrl
+    }
+    catch {
+        throw "Failed to parse SiteUrl '$SiteUrl' as a valid URI: $($_.Exception.Message)"
+    }
+
     $pathSegments = $uri.AbsolutePath.Trim('/').Split('/')
+
+    if ($pathSegments.Length -eq 0 -or [string]::IsNullOrWhiteSpace($pathSegments[0])) {
+        throw "Could not extract tenant ID from site URL '$SiteUrl'. Expected format: https://region.promapp.com/tenantId"
+    }
+
     $tenantId = $pathSegments[0]
+    Write-Verbose "Extracted tenant ID: $tenantId"
 
     $baseEndpoint = "$($uri.Scheme)://$($uri.Host)/$tenantId/Bff/Process/api/v1/processes"
+    Write-Verbose "Base endpoint: $baseEndpoint"
 
     $headers = @{
         Authorization = "Bearer $Token"
@@ -256,9 +308,21 @@ function Get-AllProcesses {
         $totalProcessed = 0
 
         do {
-            $endpoint = "$baseEndpoint?Page=$page&PageSize=$pageSize&Listtype=$listType"
+            $endpoint = "$baseEndpoint`?Page=$page&PageSize=$pageSize&Listtype=$listType"
+            Write-Verbose "Constructed endpoint: $endpoint"
+
+            # Validate the endpoint URL before calling Invoke-RestMethod
+            try {
+                $null = [System.Uri]$endpoint
+            }
+            catch {
+                Write-Log "Invalid endpoint URL constructed: '$endpoint'" -Level Error
+                Write-Log "Base endpoint was: '$baseEndpoint'" -Level Error
+                throw "Endpoint URL validation failed: $($_.Exception.Message)"
+            }
 
             try {
+                Write-Verbose "Calling Invoke-RestMethod with endpoint: $endpoint"
                 $response = Invoke-RestMethod -Uri $endpoint -Method Get -Headers $headers
 
                 $allProcesses += $response.items
@@ -271,6 +335,8 @@ function Get-AllProcesses {
             }
             catch {
                 Write-Log "Failed to get processes (Page $page): $($_.Exception.Message)" -Level Error
+                Write-Log "Endpoint was: $endpoint" -Level Error
+                Write-Log "Full error: $($_.Exception.ToString())" -Level Error
                 throw
             }
         } while ($totalProcessed -lt $response.totalItemCount)
@@ -288,10 +354,25 @@ function Export-ProcessAsXML {
         [string]$OutputPath
     )
 
-    $uri = [System.Uri]$SiteUrl
-    $pathSegments = $uri.AbsolutePath.Trim('/').Split('/')
-    $tenantId = $pathSegments[0]
+    # Validate SiteUrl parameter
+    if ([string]::IsNullOrWhiteSpace($SiteUrl)) {
+        throw "SiteUrl parameter is null or empty in Export-ProcessAsXML"
+    }
 
+    try {
+        $uri = [System.Uri]$SiteUrl
+    }
+    catch {
+        throw "Failed to parse SiteUrl '$SiteUrl' as a valid URI in Export-ProcessAsXML: $($_.Exception.Message)"
+    }
+
+    $pathSegments = $uri.AbsolutePath.Trim('/').Split('/')
+
+    if ($pathSegments.Length -eq 0 -or [string]::IsNullOrWhiteSpace($pathSegments[0])) {
+        throw "Could not extract tenant ID from site URL '$SiteUrl' in Export-ProcessAsXML"
+    }
+
+    $tenantId = $pathSegments[0]
     $endpoint = "$($uri.Scheme)://$($uri.Host)/$tenantId/Process/ImportExport/ExportProcess/$ProcessUniqueId`?isMinimode=False&latest=True&format=XML"
 
     $headers = @{
@@ -316,10 +397,25 @@ function Export-ProcessAsPDF {
         [string]$OutputPath
     )
 
-    $uri = [System.Uri]$SiteUrl
-    $pathSegments = $uri.AbsolutePath.Trim('/').Split('/')
-    $tenantId = $pathSegments[0]
+    # Validate SiteUrl parameter
+    if ([string]::IsNullOrWhiteSpace($SiteUrl)) {
+        throw "SiteUrl parameter is null or empty in Export-ProcessAsPDF"
+    }
 
+    try {
+        $uri = [System.Uri]$SiteUrl
+    }
+    catch {
+        throw "Failed to parse SiteUrl '$SiteUrl' as a valid URI in Export-ProcessAsPDF: $($_.Exception.Message)"
+    }
+
+    $pathSegments = $uri.AbsolutePath.Trim('/').Split('/')
+
+    if ($pathSegments.Length -eq 0 -or [string]::IsNullOrWhiteSpace($pathSegments[0])) {
+        throw "Could not extract tenant ID from site URL '$SiteUrl' in Export-ProcessAsPDF"
+    }
+
+    $tenantId = $pathSegments[0]
     $endpoint = "$($uri.Scheme)://$($uri.Host)/$tenantId/Process/ImportExport/Print?ProcessUniqueId=$ProcessUniqueId&IncludeFlowchart=true&IncludeProcedure=true&IncludeImages=true&IncludeBusinessAnalysis=true&IncludeFullNotes=true&IncludeTimeframes=true&IncludeRiskReference=true&IncludeCosts=true&IsShowIncludeCosts=true&Orientation=Portrait&PaperKind=A4&NoOfColumns=2&Format=PDF&IsMinimode=false&GroupOption=Group&IncludeSubProcesses=false"
 
     $headers = @{
@@ -368,11 +464,27 @@ function Get-AllDocuments {
 
     Write-Log "Retrieving document list..." -Level Info
 
-    $uri = [System.Uri]$SiteUrl
-    $pathSegments = $uri.AbsolutePath.Trim('/').Split('/')
-    $tenantId = $pathSegments[0]
+    # Validate SiteUrl parameter
+    if ([string]::IsNullOrWhiteSpace($SiteUrl)) {
+        throw "SiteUrl parameter is null or empty in Get-AllDocuments"
+    }
 
+    try {
+        $uri = [System.Uri]$SiteUrl
+    }
+    catch {
+        throw "Failed to parse SiteUrl '$SiteUrl' as a valid URI in Get-AllDocuments: $($_.Exception.Message)"
+    }
+
+    $pathSegments = $uri.AbsolutePath.Trim('/').Split('/')
+
+    if ($pathSegments.Length -eq 0 -or [string]::IsNullOrWhiteSpace($pathSegments[0])) {
+        throw "Could not extract tenant ID from site URL '$SiteUrl' in Get-AllDocuments"
+    }
+
+    $tenantId = $pathSegments[0]
     $baseEndpoint = "$($uri.Scheme)://$($uri.Host)/$tenantId/bff/document/api/v1/documents"
+    Write-Verbose "Base endpoint: $baseEndpoint"
 
     $headers = @{
         Authorization = "Bearer $Token"
@@ -385,6 +497,7 @@ function Get-AllDocuments {
 
     do {
         $endpoint = "$baseEndpoint`?Page=$page&PageSize=$pageSize&DocumentType=All"
+        Write-Verbose "Constructed endpoint: $endpoint"
 
         try {
             $response = Invoke-RestMethod -Uri $endpoint -Method Get -Headers $headers
@@ -398,6 +511,7 @@ function Get-AllDocuments {
         }
         catch {
             Write-Log "Failed to get documents (Page $page): $($_.Exception.Message)" -Level Error
+            Write-Log "Endpoint was: $endpoint" -Level Error
             throw
         }
     } while ($totalProcessed -lt $response.totalItemCount)
@@ -415,10 +529,25 @@ function Export-Document {
         [string]$OutputPath
     )
 
-    $uri = [System.Uri]$SiteUrl
-    $pathSegments = $uri.AbsolutePath.Trim('/').Split('/')
-    $tenantId = $pathSegments[0]
+    # Validate SiteUrl parameter
+    if ([string]::IsNullOrWhiteSpace($SiteUrl)) {
+        throw "SiteUrl parameter is null or empty in Export-Document"
+    }
 
+    try {
+        $uri = [System.Uri]$SiteUrl
+    }
+    catch {
+        throw "Failed to parse SiteUrl '$SiteUrl' as a valid URI in Export-Document: $($_.Exception.Message)"
+    }
+
+    $pathSegments = $uri.AbsolutePath.Trim('/').Split('/')
+
+    if ($pathSegments.Length -eq 0 -or [string]::IsNullOrWhiteSpace($pathSegments[0])) {
+        throw "Could not extract tenant ID from site URL '$SiteUrl' in Export-Document"
+    }
+
+    $tenantId = $pathSegments[0]
     $endpoint = "$($uri.Scheme)://$($uri.Host)/$tenantId/Documents/View/Open?displayType=document&documentId=$DocumentUniqueId"
 
     $headers = @{
