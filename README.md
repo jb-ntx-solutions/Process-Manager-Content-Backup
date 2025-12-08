@@ -348,6 +348,14 @@ For issues or questions, please contact your Nintex support representative or sy
 
 ## Version History
 
+### Version 1.2.4 (2025-12-08)
+- **Fixed infinite loop/hang when processing group hierarchy**
+- Replaced array slicing with proper ArrayList for queue management
+- Added try-catch around API calls to handle individual group failures gracefully
+- Enhanced verbose logging to diagnose stuck/hanging groups
+- Individual group API failures now log warning and continue instead of hanging
+- Better queue size tracking with detailed verbose output
+
 ### Version 1.2.3 (2025-12-08)
 - **Fixed excessive API calls during group hierarchy retrieval**
 - Added queue tracking to prevent queuing the same group multiple times

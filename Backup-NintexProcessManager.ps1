@@ -157,16 +157,26 @@ function Get-AllProcessGroupsRecursive {
     $allGroups = @()
     $processedGroupIds = @{}  # Track processed groups by UniqueId
     $queuedGroupIds = @{}     # Track groups already queued to prevent duplicate API calls
-    $groupsToProcess = @(@{ UniqueId = $null; Path = "" })
+    $groupsToProcess = New-Object System.Collections.ArrayList
+    $null = $groupsToProcess.Add(@{ UniqueId = $null; Path = "" })
     $groupsProcessed = 0
 
     while ($groupsToProcess.Count -gt 0) {
         $current = $groupsToProcess[0]
-        $groupsToProcess = $groupsToProcess[1..($groupsToProcess.Count - 1)]
+        $groupsToProcess.RemoveAt(0)
 
-        $groups = Get-ProcessGroups -SiteUrl $SiteUrl -Token $Token -ParentUniqueId $current.UniqueId
-        $groupsProcessed++
+        Write-Verbose "Processing group: UniqueId=$($current.UniqueId), Path='$($current.Path)', Queue size=$($groupsToProcess.Count)"
 
+        try {
+            $groups = Get-ProcessGroups -SiteUrl $SiteUrl -Token $Token -ParentUniqueId $current.UniqueId
+            $groupsProcessed++
+        }
+        catch {
+            Write-Log "Failed to retrieve children for group '$($current.Path)' (UniqueId: $($current.UniqueId)): $($_.Exception.Message)" -Level Warning
+            continue
+        }
+
+        $addedCount = 0
         foreach ($group in $groups) {
             if ($group.itemType -eq "group") {
                 # Check if we've already processed this group by its UniqueId
@@ -187,10 +197,11 @@ function Get-AllProcessGroupsRecursive {
 
                 $allGroups += $groupInfo
                 $processedGroupIds[$group.uniqueId] = $true
+                $addedCount++
 
                 # Only queue groups that have children AND haven't been queued yet
                 if ($group.hasChild -and -not $queuedGroupIds.ContainsKey($group.uniqueId)) {
-                    $groupsToProcess += @{ UniqueId = $group.uniqueId; Path = $groupPath }
+                    $null = $groupsToProcess.Add(@{ UniqueId = $group.uniqueId; Path = $groupPath })
                     $queuedGroupIds[$group.uniqueId] = $true
                     Write-Verbose "Queued group for child processing: $($group.title) (UniqueId: $($group.uniqueId))"
                 }
@@ -199,6 +210,8 @@ function Get-AllProcessGroupsRecursive {
                 }
             }
         }
+
+        Write-Verbose "Added $addedCount new groups, Queue now has $($groupsToProcess.Count) items"
 
         # Show progress update every few groups
         if ($groupsProcessed % 5 -eq 0 -or $groupsToProcess.Count -eq 0) {
