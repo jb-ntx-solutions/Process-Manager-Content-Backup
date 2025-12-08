@@ -353,6 +353,16 @@ For issues or questions, please contact your Nintex support representative or sy
 
 ## Version History
 
+### Version 1.3.1 (2025-12-08)
+- **Improved document export error handling with specific HTTP status codes**
+- Added specific handling for WebException with detailed HTTP status code information
+- 404 (Not Found) errors now logged as warnings with helpful message about deleted/inaccessible documents
+- 403 (Forbidden) errors indicate permission issues
+- 401 (Unauthorized) errors indicate authentication expiration
+- Other HTTP errors show specific status codes for easier troubleshooting
+- Script continues processing remaining documents after individual failures
+- More informative error messages help distinguish between different failure types
+
 ### Version 1.3.0 (2025-12-08)
 - **Added DocumentsOnly export mode**
 - New fourth export mode that exports only documents organized by group structure
