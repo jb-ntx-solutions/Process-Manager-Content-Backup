@@ -4,19 +4,23 @@
 
 .DESCRIPTION
     This script exports processes and documents from a Nintex Process Manager site.
-    Three export modes are available:
+    Four export modes are available:
     - XMLExport: Exports processes as XML files
     - ProcessPrint: Exports processes as PDF files
     - ProcessPrintAndDocuments: Exports processes as PDF files and includes linked documents
+    - DocumentsOnly: Exports only documents organized by group structure
 
 .PARAMETER Mode
-    The export mode: XMLExport, ProcessPrint, or ProcessPrintAndDocuments
+    The export mode: XMLExport, ProcessPrint, ProcessPrintAndDocuments, or DocumentsOnly
 
 .EXAMPLE
     .\Backup-NintexProcessManager.ps1 -Mode XMLExport
 
 .EXAMPLE
     .\Backup-NintexProcessManager.ps1 -Mode ProcessPrint
+
+.EXAMPLE
+    .\Backup-NintexProcessManager.ps1 -Mode DocumentsOnly
 
 .NOTES
     Author: Nintex
@@ -26,7 +30,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $false)]
-    [ValidateSet("XMLExport", "ProcessPrint", "ProcessPrintAndDocuments")]
+    [ValidateSet("XMLExport", "ProcessPrint", "ProcessPrintAndDocuments", "DocumentsOnly")]
     [string]$Mode
 )
 
@@ -625,16 +629,18 @@ function Start-Backup {
         Write-Host "  1. XML Export" -ForegroundColor White
         Write-Host "  2. Process Print (PDF)" -ForegroundColor White
         Write-Host "  3. Process Print and Documents (PDF + Documents)" -ForegroundColor White
+        Write-Host "  4. Documents Only" -ForegroundColor White
         Write-Host ""
 
         do {
-            $selection = Read-Host "Enter selection (1-3)"
-        } while ($selection -notin @("1", "2", "3"))
+            $selection = Read-Host "Enter selection (1-4)"
+        } while ($selection -notin @("1", "2", "3", "4"))
 
         $Mode = switch ($selection) {
             "1" { "XMLExport" }
             "2" { "ProcessPrint" }
             "3" { "ProcessPrintAndDocuments" }
+            "4" { "DocumentsOnly" }
         }
     }
 
@@ -666,10 +672,13 @@ function Start-Backup {
         New-Item -Path $outputPath -ItemType Directory -Force | Out-Null
     }
 
-    # Ask about archived processes
-    Write-Host ""
-    $includeArchivedResponse = Read-Host "Include archived processes? (Y/N)"
-    $includeArchived = $includeArchivedResponse -eq 'Y' -or $includeArchivedResponse -eq 'y'
+    # Ask about archived processes (only for modes that export processes)
+    $includeArchived = $false
+    if ($Mode -ne "DocumentsOnly") {
+        Write-Host ""
+        $includeArchivedResponse = Read-Host "Include archived processes? (Y/N)"
+        $includeArchived = $includeArchivedResponse -eq 'Y' -or $includeArchivedResponse -eq 'y'
+    }
 
     Write-Host ""
     Write-Host "================================================" -ForegroundColor Cyan
@@ -689,17 +698,21 @@ function Start-Backup {
     # Create folder structure
     $folderMap = New-GroupFolderStructure -BaseOutputPath $outputPath -ProcessGroups $processGroups
 
-    # Get all processes
-    $processes = Get-AllProcesses -SiteUrl $siteUrl -Token $token -IncludeArchived $includeArchived
-
-    # Export processes
-    Write-Log "Starting process export..." -Level Info
-    Write-Host ""
-
+    # Initialize counters
     $successCount = 0
     $failureCount = 0
-    $totalCount = $processes.Count
-    $processStartTime = Get-Date
+    $totalCount = 0
+
+    # Export processes (skip for DocumentsOnly mode)
+    if ($Mode -ne "DocumentsOnly") {
+        # Get all processes
+        $processes = Get-AllProcesses -SiteUrl $siteUrl -Token $token -IncludeArchived $includeArchived
+
+        Write-Log "Starting process export..." -Level Info
+        Write-Host ""
+
+        $totalCount = $processes.Count
+        $processStartTime = Get-Date
 
     for ($i = 0; $i -lt $totalCount; $i++) {
         $process = $processes[$i]
@@ -789,16 +802,17 @@ function Start-Backup {
         Start-Sleep -Milliseconds 100
     }
 
-    Write-Progress -Activity "Exporting Processes" -Completed
-    $processElapsed = (Get-Date) - $processStartTime
-    Write-Log "Process export completed in $(Format-ElapsedTime -TimeSpan $processElapsed)" -Level Info
+        Write-Progress -Activity "Exporting Processes" -Completed
+        $processElapsed = (Get-Date) - $processStartTime
+        Write-Log "Process export completed in $(Format-ElapsedTime -TimeSpan $processElapsed)" -Level Info
+    }
 
-    # Export documents if in ProcessPrintAndDocuments mode
+    # Export documents if in ProcessPrintAndDocuments or DocumentsOnly mode
     $docSuccessCount = 0
     $docFailureCount = 0
     $docTotalCount = 0
 
-    if ($Mode -eq "ProcessPrintAndDocuments") {
+    if ($Mode -eq "ProcessPrintAndDocuments" -or $Mode -eq "DocumentsOnly") {
         Write-Host ""
         Write-Host "================================================" -ForegroundColor Cyan
         Write-Host "  Starting Document Export" -ForegroundColor Cyan
@@ -909,14 +923,19 @@ function Start-Backup {
     Write-Host ""
     Write-Log "Total backup time: $(Format-ElapsedTime -TimeSpan $totalBackupTime)" -Level Info
     Write-Host ""
-    Write-Log "Total processes: $totalCount" -Level Info
-    Write-Log "Successfully exported: $successCount" -Level Success
 
-    if ($failureCount -gt 0) {
-        Write-Log "Failed process exports: $failureCount" -Level Warning
+    # Show process statistics (skip for DocumentsOnly mode)
+    if ($Mode -ne "DocumentsOnly") {
+        Write-Log "Total processes: $totalCount" -Level Info
+        Write-Log "Successfully exported: $successCount" -Level Success
+
+        if ($failureCount -gt 0) {
+            Write-Log "Failed process exports: $failureCount" -Level Warning
+        }
     }
 
-    if ($Mode -eq "ProcessPrintAndDocuments") {
+    # Show document statistics (for ProcessPrintAndDocuments and DocumentsOnly modes)
+    if ($Mode -eq "ProcessPrintAndDocuments" -or $Mode -eq "DocumentsOnly") {
         Write-Host ""
         Write-Log "Total documents: $docTotalCount" -Level Info
         Write-Log "Successfully exported: $docSuccessCount" -Level Success
