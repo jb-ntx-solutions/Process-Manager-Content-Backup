@@ -310,6 +310,122 @@ function New-GroupFolderStructure {
     return $folderMap
 }
 
+function Get-AllDocuments {
+    param(
+        [string]$SiteUrl,
+        [string]$Token
+    )
+
+    Write-Log "Retrieving document list..." -Level Info
+
+    $uri = [System.Uri]$SiteUrl
+    $pathSegments = $uri.AbsolutePath.Trim('/').Split('/')
+    $tenantId = $pathSegments[0]
+
+    $baseEndpoint = "$($uri.Scheme)://$($uri.Host)/$tenantId/bff/document/api/v1/documents"
+
+    $headers = @{
+        Authorization = "Bearer $Token"
+    }
+
+    $allDocuments = @()
+    $page = 1
+    $pageSize = 100
+    $totalProcessed = 0
+
+    do {
+        $endpoint = "$baseEndpoint`?Page=$page&PageSize=$pageSize&DocumentType=All"
+
+        try {
+            $response = Invoke-RestMethod -Uri $endpoint -Method Get -Headers $headers
+
+            $allDocuments += $response.items
+            $totalProcessed += $response.items.Count
+
+            Write-Log "Retrieved $totalProcessed of $($response.totalItemCount) documents..." -Level Info
+
+            $page++
+        }
+        catch {
+            Write-Log "Failed to get documents (Page $page): $($_.Exception.Message)" -Level Error
+            throw
+        }
+    } while ($totalProcessed -lt $response.totalItemCount)
+
+    Write-Log "Retrieved total of $($allDocuments.Count) documents" -Level Success
+    return $allDocuments
+}
+
+function Export-Document {
+    param(
+        [string]$SiteUrl,
+        [string]$Token,
+        [string]$DocumentUniqueId,
+        [string]$DocumentName,
+        [string]$OutputPath
+    )
+
+    $uri = [System.Uri]$SiteUrl
+    $pathSegments = $uri.AbsolutePath.Trim('/').Split('/')
+    $tenantId = $pathSegments[0]
+
+    $endpoint = "$($uri.Scheme)://$($uri.Host)/$tenantId/Documents/View/Open?displayType=document&documentId=$DocumentUniqueId"
+
+    $headers = @{
+        Authorization = "Bearer $Token"
+    }
+
+    try {
+        # Create a temporary file to store the response
+        $tempFile = [System.IO.Path]::GetTempFileName()
+
+        # Download the document
+        $webClient = New-Object System.Net.WebClient
+        $webClient.Headers.Add("Authorization", "Bearer $Token")
+
+        try {
+            $webClient.DownloadFile($endpoint, $tempFile)
+        }
+        finally {
+            $webClient.Dispose()
+        }
+
+        # Read the content to check if it's Base64 encoded
+        $content = Get-Content -Path $tempFile -Raw -Encoding UTF8
+
+        # Check if the content appears to be Base64 (text-based)
+        if ($content -and $content.Length -gt 0 -and $content -match '^[A-Za-z0-9+/=\s]+$') {
+            try {
+                # Try to decode as Base64
+                $bytes = [System.Convert]::FromBase64String($content.Trim())
+                [System.IO.File]::WriteAllBytes($OutputPath, $bytes)
+                Remove-Item -Path $tempFile -Force
+                return $true
+            }
+            catch {
+                # Not Base64, treat as binary file
+                Move-Item -Path $tempFile -Destination $OutputPath -Force
+                return $true
+            }
+        }
+        else {
+            # Binary file, just move it
+            Move-Item -Path $tempFile -Destination $OutputPath -Force
+            return $true
+        }
+    }
+    catch {
+        Write-Log "Failed to export document $DocumentName : $($_.Exception.Message)" -Level Error
+
+        # Clean up temp file if it exists
+        if (Test-Path -Path $tempFile) {
+            Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue
+        }
+
+        return $false
+    }
+}
+
 #endregion
 
 #region Main Script
@@ -447,6 +563,71 @@ function Start-Backup {
 
     Write-Progress -Activity "Exporting Processes" -Completed
 
+    # Export documents if in ProcessPrintAndDocuments mode
+    $docSuccessCount = 0
+    $docFailureCount = 0
+    $docTotalCount = 0
+
+    if ($Mode -eq "ProcessPrintAndDocuments") {
+        Write-Host ""
+        Write-Host "================================================" -ForegroundColor Cyan
+        Write-Host "  Starting Document Export" -ForegroundColor Cyan
+        Write-Host "================================================" -ForegroundColor Cyan
+        Write-Host ""
+
+        # Get all documents
+        $documents = Get-AllDocuments -SiteUrl $siteUrl -Token $token
+        $docTotalCount = $documents.Count
+
+        Write-Log "Starting document export..." -Level Info
+        Write-Host ""
+
+        for ($i = 0; $i -lt $docTotalCount; $i++) {
+            $document = $documents[$i]
+            $currentNum = $i + 1
+
+            Write-Progress -Activity "Exporting Documents" -Status "Processing $currentNum of $docTotalCount : $($document.documentName)" -PercentComplete (($currentNum / $docTotalCount) * 100)
+
+            # Determine output folder based on primary group
+            $outputFolder = $folderMap[$document.primaryGroupUniqueId]
+
+            if (-not $outputFolder) {
+                # Group not found in our hierarchy, use a default "Ungrouped" folder
+                $outputFolder = Join-Path -Path $outputPath -ChildPath "_Ungrouped"
+                if (-not (Test-Path -Path $outputFolder)) {
+                    New-Item -Path $outputFolder -ItemType Directory -Force | Out-Null
+                }
+            }
+
+            # Create a Documents subfolder within the group folder
+            $documentsFolder = Join-Path -Path $outputFolder -ChildPath "_Documents"
+            if (-not (Test-Path -Path $documentsFolder)) {
+                New-Item -Path $documentsFolder -ItemType Directory -Force | Out-Null
+            }
+
+            # Sanitize document name for filename
+            $safeFileName = Get-SafeFileName -FileName $document.documentName
+
+            $filePath = Join-Path -Path $documentsFolder -ChildPath $safeFileName
+
+            # Export document
+            $docSuccess = Export-Document -SiteUrl $siteUrl -Token $token -DocumentUniqueId $document.documentUniqueId -DocumentName $document.documentName -OutputPath $filePath
+
+            if ($docSuccess) {
+                $docSuccessCount++
+                Write-Log "[$currentNum/$docTotalCount] Exported: $($document.documentName)" -Level Success
+            }
+            else {
+                $docFailureCount++
+            }
+
+            # Brief pause to avoid overwhelming the server
+            Start-Sleep -Milliseconds 100
+        }
+
+        Write-Progress -Activity "Exporting Documents" -Completed
+    }
+
     # Summary
     Write-Host ""
     Write-Host "================================================" -ForegroundColor Cyan
@@ -457,7 +638,17 @@ function Start-Backup {
     Write-Log "Successfully exported: $successCount" -Level Success
 
     if ($failureCount -gt 0) {
-        Write-Log "Failed exports: $failureCount" -Level Warning
+        Write-Log "Failed process exports: $failureCount" -Level Warning
+    }
+
+    if ($Mode -eq "ProcessPrintAndDocuments") {
+        Write-Host ""
+        Write-Log "Total documents: $docTotalCount" -Level Info
+        Write-Log "Successfully exported: $docSuccessCount" -Level Success
+
+        if ($docFailureCount -gt 0) {
+            Write-Log "Failed document exports: $docFailureCount" -Level Warning
+        }
     }
 
     Write-Host ""

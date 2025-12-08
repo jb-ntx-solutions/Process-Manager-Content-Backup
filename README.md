@@ -11,17 +11,19 @@ This script connects to a Nintex Process Manager site and exports all processes 
 - **Three Export Modes:**
   - **XML Export**: Exports all processes as XML files
   - **Process Print**: Exports all processes as PDF files
-  - **Process Print and Documents**: Exports processes as PDF files and includes linked documents (coming soon)
+  - **Process Print and Documents**: Exports processes as PDF files and includes all documents from the site
 
 - **Comprehensive Backup:**
   - Retrieves complete process group hierarchy
   - Creates matching folder structure locally
-  - Handles pagination for large process lists
+  - Handles pagination for large process lists (processes and documents)
   - Optional inclusion of archived processes
   - Progress tracking and detailed logging
+  - Automatic Base64 decoding for documents
+  - Documents organized in _Documents subfolders within their primary groups
 
 - **Error Handling:**
-  - Graceful failure handling for individual processes
+  - Graceful failure handling for individual processes and documents
   - Summary report of successful and failed exports
   - Detailed logging with timestamps
 
@@ -68,6 +70,8 @@ You can also specify the export mode via parameter:
 
 The script creates a folder structure that mirrors your Process Manager group hierarchy:
 
+### XMLExport and ProcessPrint Modes
+
 ```
 OutputDirectory/
 ├── Group 1/
@@ -80,6 +84,33 @@ OutputDirectory/
 └── _Ungrouped/
     └── Orphaned Process.xml (or .pdf)
 ```
+
+### ProcessPrintAndDocuments Mode
+
+```
+OutputDirectory/
+├── Group 1/
+│   ├── Process A.pdf
+│   ├── Process B.pdf
+│   ├── _Documents/
+│   │   ├── Document1.docx
+│   │   ├── Document2.pdf
+│   │   └── Image.jpg
+│   └── Subgroup 1/
+│       ├── Process C.pdf
+│       └── _Documents/
+│           └── SubgroupDoc.xlsx
+├── Group 2/
+│   ├── Process D.pdf
+│   └── _Documents/
+│       └── Video.mp4
+└── _Ungrouped/
+    ├── Orphaned Process.pdf
+    └── _Documents/
+        └── UngroupedDoc.pdf
+```
+
+Documents are placed in `_Documents` subfolders within their primary group as defined in Process Manager.
 
 ## Authentication
 
@@ -103,6 +134,8 @@ The script interacts with the following Nintex Process Manager APIs:
 3. **Process List**: `GET /Bff/Process/api/v1/processes`
 4. **XML Export**: `GET /Process/ImportExport/ExportProcess/{processId}`
 5. **PDF Export**: `GET /Process/ImportExport/Print`
+6. **Document List**: `GET /bff/document/api/v1/documents`
+7. **Document Download**: `GET /Documents/View/Open`
 
 ## Export Modes Explained
 
@@ -130,9 +163,16 @@ Exports each process as a formatted PDF including:
 
 **Best for**: Documentation, sharing with stakeholders, compliance
 
-### Process Print and Documents (Coming Soon)
+### Process Print and Documents
 
-Exports processes as PDFs and downloads all linked documents.
+Exports processes as PDFs and downloads all documents from the site, including:
+- All document types (Word, Excel, PowerPoint, PDF, images, videos, etc.)
+- Automatic Base64 decoding for text-based documents
+- Binary file handling for images and videos
+- Documents organized in `_Documents` subfolders within their primary group
+- Proper file extension preservation
+
+**Best for**: Complete site backups, disaster recovery, content migration
 
 ## Parameters
 
@@ -163,6 +203,25 @@ Exports processes as PDFs and downloads all linked documents.
 # When prompted, select 'Y' for including archived processes
 ```
 
+### Example 3: Complete Site Backup with Processes and Documents
+
+```powershell
+.\Backup-NintexProcessManager.ps1 -Mode ProcessPrintAndDocuments
+
+# When prompted:
+# Site URL: https://au.promapp.com/mycompany
+# Username: backup.service@company.com
+# Password: ********
+# Output directory: C:\Backups\ProcessManager\Full-Backup-2025-12-08
+# Include archived processes? Y
+```
+
+This will export:
+- All active and archived processes as PDF files
+- All documents from the site (Word, Excel, images, videos, etc.)
+- Documents organized in `_Documents` subfolders within their primary groups
+- Complete folder structure matching the site's group hierarchy
+
 ## Troubleshooting
 
 ### Authentication Failures
@@ -173,7 +232,13 @@ Exports processes as PDFs and downloads all linked documents.
 
 ### Export Failures
 
-Individual process export failures are logged but don't stop the script. Check the console output for specific error messages.
+Individual process and document export failures are logged but don't stop the script. Check the console output for specific error messages.
+
+Common causes:
+- Network connectivity issues during download
+- Insufficient permissions to access certain processes or documents
+- Corrupted files in the source system
+- Disk space limitations on the destination
 
 ### Path Length Issues
 
@@ -193,11 +258,12 @@ Windows has a 260-character path limit. The script sanitizes filenames and limit
 
 ## Roadmap
 
-- [ ] Document export functionality for ProcessPrintAndDocuments mode
+- [x] Document export functionality for ProcessPrintAndDocuments mode
 - [ ] Support for parallel process exports
 - [ ] Resume capability for interrupted backups
 - [ ] Incremental backup support (only export changed processes)
 - [ ] Export filtering by group, date, or other criteria
+- [ ] Link documents to their associated processes in the export
 
 ## License
 
@@ -208,6 +274,13 @@ This script is provided as-is for use with Nintex Process Manager.
 For issues or questions, please contact your Nintex support representative or system administrator.
 
 ## Version History
+
+### Version 1.1.0 (2025-12-08)
+- Added document export functionality
+- Automatic Base64 decoding for documents
+- Documents organized in _Documents subfolders
+- Complete ProcessPrintAndDocuments mode implementation
+- Enhanced summary reporting with document statistics
 
 ### Version 1.0.0 (2025-12-08)
 - Initial release
