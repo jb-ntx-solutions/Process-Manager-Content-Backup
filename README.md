@@ -1,6 +1,6 @@
 # Nintex Process Manager Content Backup Script
 
-A PowerShell script to backup and export content from Nintex Process Manager sites locally.
+A PowerShell script to backup and export content from a Nintex Process Manager site locally.
 
 ## Overview
 
