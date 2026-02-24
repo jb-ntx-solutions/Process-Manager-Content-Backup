@@ -781,13 +781,13 @@ function Start-Backup {
             $filePath = Join-Path -Path $outputFolder -ChildPath "$safeFileName.pdf"
         }
 
-        # Check if path length exceeds Windows MAX_PATH (260 characters)
-        if ($filePath.Length -gt 260) {
+        # Check if path length exceeds Windows MAX_PATH limit (259 usable chars; MAX_PATH=260 includes null terminator)
+        if ($filePath.Length -gt 259) {
             Write-Log "Path too long ($($filePath.Length) chars), truncating filename: $($process.processName)" -Level Warning
 
             # Calculate how much we need to truncate
             $extension = if ($Mode -eq "XMLExport") { ".xml" } else { ".pdf" }
-            $maxFileNameLength = 260 - $outputFolder.Length - $extension.Length - 1  # -1 for the path separator
+            $maxFileNameLength = 259 - $outputFolder.Length - $extension.Length - 1  # -1 for the path separator
 
             if ($maxFileNameLength -gt 20) {
                 $safeFileName = $safeFileName.Substring(0, [Math]::Min($safeFileName.Length, $maxFileNameLength))
@@ -892,13 +892,13 @@ function Start-Backup {
 
             $filePath = Join-Path -Path $documentsFolder -ChildPath $safeFileName
 
-            # Check if path length exceeds Windows MAX_PATH (260 characters)
-            if ($filePath.Length -gt 260) {
+            # Check if path length exceeds Windows MAX_PATH limit (259 usable chars; MAX_PATH=260 includes null terminator)
+            if ($filePath.Length -gt 259) {
                 Write-Log "Document path too long ($($filePath.Length) chars), truncating filename: $($document.documentName)" -Level Warning
 
                 # Calculate how much we need to truncate
                 $fileExtension = [System.IO.Path]::GetExtension($safeFileName)
-                $maxFileNameLength = 260 - $documentsFolder.Length - $fileExtension.Length - 1  # -1 for the path separator
+                $maxFileNameLength = 259 - $documentsFolder.Length - $fileExtension.Length - 1  # -1 for the path separator
 
                 if ($maxFileNameLength -gt 20) {
                     $fileNameWithoutExt = [System.IO.Path]::GetFileNameWithoutExtension($safeFileName)
