@@ -386,7 +386,7 @@ function Export-ProcessAsXML {
     }
 
     try {
-        Invoke-RestMethod -Uri $endpoint -Method Get -Headers $headers -OutFile $OutputPath
+        Invoke-RestMethod -Uri $endpoint -Method Get -Headers $headers -OutFile $OutputPath -TimeoutSec 120
         return $true
     }
     catch {
@@ -429,7 +429,7 @@ function Export-ProcessAsPDF {
     }
 
     try {
-        Invoke-RestMethod -Uri $endpoint -Method Get -Headers $headers -OutFile $OutputPath
+        Invoke-RestMethod -Uri $endpoint -Method Get -Headers $headers -OutFile $OutputPath -TimeoutSec 300
         return $true
     }
     catch {
