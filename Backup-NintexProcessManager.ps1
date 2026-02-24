@@ -794,9 +794,15 @@ function Start-Backup {
                 $filePath = Join-Path -Path $outputFolder -ChildPath "$safeFileName$extension"
             }
             else {
-                Write-Log "Cannot create valid path for process: $($process.processName). Output folder path is too long." -Level Error
-                $failureCount++
-                continue
+                # Folder path is too long to fit any meaningful filename; fall back to a _LongPath folder
+                # in the root output directory and use the process unique ID as the filename.
+                $fallbackFolder = Join-Path -Path $outputPath -ChildPath "_LongPath"
+                if (-not (Test-Path -Path $fallbackFolder)) {
+                    New-Item -Path $fallbackFolder -ItemType Directory -Force | Out-Null
+                }
+                $safeFileName = $process.processUniqueId
+                $filePath = Join-Path -Path $fallbackFolder -ChildPath "$safeFileName$extension"
+                Write-Log "Folder path too long; exporting to _LongPath\$safeFileName$extension ($($process.processName))" -Level Warning
             }
         }
 
@@ -907,9 +913,15 @@ function Start-Backup {
                     $filePath = Join-Path -Path $documentsFolder -ChildPath $safeFileName
                 }
                 else {
-                    Write-Log "Cannot create valid path for document: $($document.documentName). Output folder path is too long." -Level Error
-                    $docFailureCount++
-                    continue
+                    # Folder path is too long to fit any meaningful filename; fall back to a _LongPath folder
+                    # in the root output directory and use the document unique ID as the filename.
+                    $fallbackFolder = Join-Path -Path $outputPath -ChildPath "_LongPath"
+                    if (-not (Test-Path -Path $fallbackFolder)) {
+                        New-Item -Path $fallbackFolder -ItemType Directory -Force | Out-Null
+                    }
+                    $safeFileName = "$($document.documentUniqueId)$fileExtension"
+                    $filePath = Join-Path -Path $fallbackFolder -ChildPath $safeFileName
+                    Write-Log "Folder path too long; exporting to _LongPath\$safeFileName ($($document.documentName))" -Level Warning
                 }
             }
 
