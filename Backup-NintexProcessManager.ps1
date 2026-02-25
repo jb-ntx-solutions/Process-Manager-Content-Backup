@@ -10,6 +10,11 @@
     - ProcessPrintAndDocuments: Exports processes as PDF files and includes linked documents
     - DocumentsOnly: Exports only documents organized by group structure
 
+    For process export modes, you can choose which processes to include:
+    - Active processes only
+    - Active and archived processes
+    - Archived processes only (useful for backing up the Archive before deletion)
+
 .PARAMETER Mode
     The export mode: XMLExport, ProcessPrint, ProcessPrintAndDocuments, or DocumentsOnly
 
@@ -266,7 +271,8 @@ function Get-AllProcesses {
     param(
         [string]$SiteUrl,
         [string]$Token,
-        [bool]$IncludeArchived
+        [ValidateSet("ActiveOnly", "Both", "ArchivedOnly")]
+        [string]$ProcessScope = "ActiveOnly"
     )
 
     Write-Log "Retrieving process list..." -Level Info
@@ -302,10 +308,10 @@ function Get-AllProcesses {
     }
 
     $allProcesses = @()
-    $listTypes = @(0)  # Active processes
-
-    if ($IncludeArchived) {
-        $listTypes += 7  # Archived processes
+    $listTypes = switch ($ProcessScope) {
+        "ArchivedOnly" { @(7) }          # Archived processes only
+        "Both"         { @(0, 7) }       # Active + Archived processes
+        default        { @(0) }          # Active processes only (default)
     }
 
     foreach ($listType in $listTypes) {
@@ -694,12 +700,32 @@ function Start-Backup {
         New-Item -Path $outputPath -ItemType Directory -Force | Out-Null
     }
 
-    # Ask about archived processes (only for modes that export processes)
-    $includeArchived = $false
+    # Ask which processes to export (only for modes that export processes)
+    $processScope = "ActiveOnly"
     if ($Mode -ne "DocumentsOnly") {
         Write-Host ""
-        $includeArchivedResponse = Read-Host "Include archived processes? (Y/N)"
-        $includeArchived = $includeArchivedResponse -eq 'Y' -or $includeArchivedResponse -eq 'y'
+        Write-Host "Select which processes to export:" -ForegroundColor Yellow
+        Write-Host "  1. Active processes only" -ForegroundColor White
+        Write-Host "  2. Active and archived processes" -ForegroundColor White
+        Write-Host "  3. Archived processes only" -ForegroundColor White
+        Write-Host ""
+
+        do {
+            $scopeSelection = Read-Host "Enter selection (1-3)"
+        } while ($scopeSelection -notin @("1", "2", "3"))
+
+        $processScope = switch ($scopeSelection) {
+            "1" { "ActiveOnly" }
+            "2" { "Both" }
+            "3" { "ArchivedOnly" }
+        }
+
+        $scopeLabel = switch ($processScope) {
+            "ArchivedOnly" { "Archived processes only" }
+            "Both"         { "Active and archived processes" }
+            default        { "Active processes only" }
+        }
+        Write-Log "Process scope: $scopeLabel" -Level Info
     }
 
     Write-Host ""
@@ -728,7 +754,7 @@ function Start-Backup {
     # Export processes (skip for DocumentsOnly mode)
     if ($Mode -ne "DocumentsOnly") {
         # Get all processes
-        $processes = Get-AllProcesses -SiteUrl $siteUrl -Token $token -IncludeArchived $includeArchived
+        $processes = Get-AllProcesses -SiteUrl $siteUrl -Token $token -ProcessScope $processScope
 
         Write-Log "Starting process export..." -Level Info
         Write-Host ""

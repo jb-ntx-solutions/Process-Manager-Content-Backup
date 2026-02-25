@@ -18,7 +18,7 @@ This script connects to a Nintex Process Manager site and exports all processes 
   - Retrieves complete process group hierarchy
   - Creates matching folder structure locally
   - Handles pagination for large process lists (processes and documents)
-  - Optional inclusion of archived processes
+  - Flexible process scope selection: active only, active + archived, or archived only
   - **Enhanced progress tracking** with real-time status updates:
     - Elapsed time tracking for overall backup and individual phases
     - Processing rate (items/second) for processes and documents
@@ -57,7 +57,10 @@ You will be prompted for:
 2. Site URL (e.g., `https://us.promapp.com/siteName`)
 3. Username and password
 4. Output directory path
-5. Whether to include archived processes (only for modes that export processes)
+5. Process scope — which processes to export (only for modes that export processes):
+   - **Active processes only** — exports currently active processes
+   - **Active and archived processes** — exports everything
+   - **Archived processes only** — exports only archived processes (useful for backing up the Archive before deletion)
 
 ### Command-Line Mode
 
@@ -205,7 +208,7 @@ Exports processes as PDFs and downloads all documents from the site, including:
 # Username: backup.service@company.com
 # Password: ********
 # Output directory: C:\Backups\ProcessManager\2025-12-08
-# Include archived processes? N
+# Select which processes to export: 1 (Active processes only)
 ```
 
 ### Example 2: Export All Processes (Including Archived) as PDF
@@ -213,10 +216,25 @@ Exports processes as PDFs and downloads all documents from the site, including:
 ```powershell
 .\Backup-NintexProcessManager.ps1 -Mode ProcessPrint
 
-# When prompted, select 'Y' for including archived processes
+# When prompted for process scope, select 2 (Active and archived processes)
 ```
 
-### Example 3: Complete Site Backup with Processes and Documents
+### Example 3: Export Archived Processes Only as XML (Archive Backup)
+
+```powershell
+.\Backup-NintexProcessManager.ps1 -Mode XMLExport
+
+# When prompted:
+# Site URL: https://us.promapp.com/mycompany
+# Username: backup.service@company.com
+# Password: ********
+# Output directory: C:\Backups\ProcessManager\Archive-Backup-2025-12-08
+# Select which processes to export: 3 (Archived processes only)
+```
+
+This will export only processes currently in the Archive — ideal for taking a backup before clearing archived content.
+
+### Example 4: Complete Site Backup with Processes and Documents
 
 ```powershell
 .\Backup-NintexProcessManager.ps1 -Mode ProcessPrintAndDocuments
@@ -226,7 +244,7 @@ Exports processes as PDFs and downloads all documents from the site, including:
 # Username: backup.service@company.com
 # Password: ********
 # Output directory: C:\Backups\ProcessManager\Full-Backup-2025-12-08
-# Include archived processes? Y
+# Select which processes to export: 2 (Active and archived processes)
 ```
 
 This will export:
@@ -352,6 +370,16 @@ This script is provided as-is for use with Nintex Process Manager.
 For issues or questions, please contact your Nintex support representative or system administrator.
 
 ## Version History
+
+### Version 1.4.0 (2026-02-25)
+- **Added selective archive export option**
+- Replaced the binary "Include archived processes? (Y/N)" prompt with a three-option process scope selection:
+  - **Active processes only** — exports only currently active processes (previous default behaviour)
+  - **Active and archived processes** — exports both active and archived processes (previous "Y" behaviour)
+  - **Archived processes only** — new option to export only archived processes
+- Archive-only export is designed for customers who want to back up archived content before deleting it
+- Process scope is logged at startup for clear confirmation of what will be exported
+- `Get-AllProcesses` now accepts a `ProcessScope` parameter (`ActiveOnly`, `Both`, `ArchivedOnly`) replacing the previous `IncludeArchived` boolean
 
 ### Version 1.3.1 (2025-12-08)
 - **Improved document export error handling with specific HTTP status codes**
